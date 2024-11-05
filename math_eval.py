@@ -39,7 +39,6 @@ def parse_args():
     parser.add_argument("--max_tokens_per_call", default=2048, type=int)
     parser.add_argument("--shuffle", action="store_true")
     parser.add_argument("--use_vllm", action="store_true")
-    parser.add_argument("--critic", action="store_true")
     parser.add_argument("--save_outputs", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--use_safetensors", action="store_true")
@@ -181,8 +180,8 @@ def main(llm, tokenizer, data_name, args):
     for example in tqdm(examples, total=len(examples)):
         idx = example["idx"]
 
-        if args.critic:
-            example["question"] = example["question"] + "\n\nWrong Reasoning\n\n" + example["wrong"]
+        if "critic" in args.prompt_type:
+            example["question"] = example["question"] + "\n\nReasoning\n\n" + example["reasoning"]
         # # parse question and answer
         # example["question"] = parse_question(example, data_name)
         # if example["question"] == "":
@@ -297,12 +296,11 @@ def main(llm, tokenizer, data_name, args):
             timeout_cnt = 0
             client_prompts = [{"idx": item[0], "prompt": item[1]} for item in current_prompts]
             # lock = Manager().Lock()
-            get_client_response_paltial = partial(get_client_response, model_name=args.model_name_or_path, base_url=args.base_url, critic=args.critic)
+            get_client_response_paltial = partial(get_client_response, args=args)
             batch_size = 20
             with ProcessPool(max_workers=8) as pool:
                 for i in range(0, len(client_prompts), batch_size):
                     batch_prompts = client_prompts[i: i + batch_size]
-                    print(f"batch_prompts length: {len(batch_prompts)}")
                     future = pool.map(get_client_response_paltial, batch_prompts, timeout=60)
                     iterator = future.result()
                     with tqdm(total=len(batch_prompts), desc="Evaluate") as progress_bar:
@@ -319,7 +317,6 @@ def main(llm, tokenizer, data_name, args):
                                 print(error)
                                 exit()
                             progress_bar.update(1)
-                    print(f"outputs length: {len(outputs)}")
             outputs = sorted(outputs, key=lambda x: x[0])
             outputs = [output[1] for output in outputs]
         else:

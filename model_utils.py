@@ -213,7 +213,13 @@ def load_hf_lm_and_tokenizer(
     return model, tokenizer
 
 
-def get_client_response(client_prompt, model_name, base_url, critic):
+def get_client_response(client_prompt, args):
+    model_name=args.model_name_or_path
+    base_url=args.base_url
+    if "critic" in args.prompt_type:
+        critic = True 
+    else:
+        critic = False
     client = load_client(base_url)
     if critic:
         completion = client.chat.completions.create(
