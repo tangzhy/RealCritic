@@ -213,7 +213,7 @@ def load_hf_lm_and_tokenizer(
     return model, tokenizer
 
 
-def get_client_response(client_prompt, model_name, base_url, critic):
+def get_client_response(client_prompt, model_name, base_url, critic, temperature, top_p, max_tokens, n, stop):
     client = load_client(base_url)
     if critic:
         completion = client.chat.completions.create(
@@ -221,7 +221,12 @@ def get_client_response(client_prompt, model_name, base_url, critic):
             messages=[
                 {"role": "system", "content": "You will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}."},
                 {"role": "user", "content": client_prompt["prompt"]}, # current_prompt结构是(idx, prompt)
-            ]
+            ], 
+            temperature=temperature, 
+            top_p=top_p, 
+            max_tokens=max_tokens, 
+            n=n, 
+            stop=stop, 
         )
     else:
         completion = client.chat.completions.create(
@@ -229,9 +234,18 @@ def get_client_response(client_prompt, model_name, base_url, critic):
             messages=[
                 {"role": "system", "content": "Please reason step by step, and put your final answer within \\boxed{{}}."},
                 {"role": "user", "content": client_prompt["prompt"]},
-            ]
+            ],
+            temperature=temperature, 
+            top_p=top_p, 
+            max_tokens=max_tokens, 
+            n=n, 
+            stop=stop, 
         )
     output = json.loads(completion.model_dump_json())["choices"][0]["message"]["content"]
+    print("-" * 20 + "prompt" + "-" * 20)
+    print(client_prompt["prompt"])
+    print("-" * 20 + "completion" + "-" * 20)
+    print(output)
     return (client_prompt["idx"], output)
 
 
