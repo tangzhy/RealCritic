@@ -216,8 +216,7 @@ def load_hf_lm_and_tokenizer(
     model.eval()
     return model, tokenizer
 
-
-def get_client_response(client_prompt, args):
+def get_client_response(client_prompt, args, stop):
     model_name=args.model_name_or_path
     base_url=args.base_url
     client = load_client(base_url)
@@ -226,9 +225,18 @@ def get_client_response(client_prompt, args):
         messages=[
             {"role": "system", "content": PROMPT_TEMPLATES[args.prompt_type]},
             {"role": "user", "content": client_prompt["prompt"]},
-        ]
+        ],
+        temperature=args.temperature, 
+        top_p=args.top_p, 
+        max_tokens=args.max_tokens, 
+        n=args.n_sampling, 
+        stop=stop, 
     )
     output = json.loads(completion.model_dump_json())["choices"][0]["message"]["content"]
+    print("-" * 20 + "prompt" + "-" * 20)
+    print(client_prompt["prompt"])
+    print("-" * 20 + "completion" + "-" * 20)
+    print(output)
     return (client_prompt["idx"], output)
 
 

@@ -299,8 +299,10 @@ def main(llm, tokenizer, data_name, args):
             timeout_cnt = 0
             client_prompts = [{"idx": item[0], "prompt": item[1]} for item in current_prompts]
             # lock = Manager().Lock()
-            get_client_response_paltial = partial(get_client_response, args=args)
-            batch_size = 20
+            get_client_response_paltial = partial(get_client_response, args=args, stop=stop_words)
+            batch_size = 1
+            num_processed = 0
+            num_total = len(client_prompts)
             with ProcessPool(max_workers=8) as pool:
                 for i in range(0, len(client_prompts), batch_size):
                     batch_prompts = client_prompts[i: i + batch_size]
@@ -310,6 +312,8 @@ def main(llm, tokenizer, data_name, args):
                         while True:
                             try:
                                 result = next(iterator)
+                                num_processed += batch_size
+                                print(f"progress: {num_processed/num_total}.")
                                 outputs.append(result)
                             except StopIteration:
                                 break

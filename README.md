@@ -1,3 +1,18 @@
+### API Debug
+
+First start your api service, please change the model path or name as you like
+```bash
+sh sh/serve_qwen2.5-math-7b-instruct_api.sh
+```
+
+Then try to request the api to evaluate. 
+- We change the batch_size per request to 1, since we are already doing multiprocessing at data point level, grouping data point into large batches seems unneccessary.
+- We modify the get_client_reponse function which support temperature, top_p and so on. Otherwise, you may get totally unexpected results.
+```bash
+sh sh/dbg_use_api
+```
+
+
 ### Requirements
 You can install the required packages with the following command:
 ```bash
