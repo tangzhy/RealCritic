@@ -44,7 +44,6 @@ def parse_args():
     parser.add_argument("--use_safetensors", action="store_true")
     parser.add_argument("--num_shots", type=int, default=0)
     parser.add_argument("--use_api", action="store_true")
-    parser.add_argument("--base_url", type=str, default="https://dashscope.aliyuncs.com/compatible-mode/v1") # 如果设置use_api，则要带上base_url
     parser.add_argument(
         "--apply_chat_template",
         action="store_true",

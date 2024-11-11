@@ -144,13 +144,13 @@ def generate_completions(model, tokenizer, prompts, batch_size=1, stop_id_sequen
     assert len(generations) == len(prompts) * num_return_sequences, "number of generations should be equal to number of prompts * num_return_sequences"
     return generations
 
-def load_client(base_url):
+def load_client():
     """
     model_name: client要访问的模型名称
     """
     client = OpenAI(
     api_key=os.getenv("DASHSCOPE_API_KEY"),
-    base_url=base_url,
+    base_url=os.getenv("DASHSCOPE_BASE_URL"),
     )
     return client
 
@@ -218,8 +218,7 @@ def load_hf_lm_and_tokenizer(
 
 def get_client_response(client_prompt, args, stop):
     model_name=args.model_name_or_path
-    base_url=args.base_url
-    client = load_client(base_url)
+    client = load_client()
     completion = client.chat.completions.create(
         model=model_name,
         messages=[
