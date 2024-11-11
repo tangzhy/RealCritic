@@ -8,7 +8,11 @@ import os
 from openai import OpenAI
 import json
 
-
+PROMPT_TEMPLATES = {
+    "api-critic": "You will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.",
+    "api-judging-critic": "You will be provided with a question and a reasoning. The reasoning may be correct or incorrect. You need to make a judgment; if you think the reasoning is correct, put the answer within \boxed{{}}. If you think the reasoning is wrong, first you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.",
+    "api-direct-reasoning": "Please reason step by step, and put your final answer within \\boxed{{}}."
+}
 
 class KeywordsStoppingCriteria(StoppingCriteria):
     def __init__(self, keywords_str, tokenizer):
@@ -216,27 +220,14 @@ def load_hf_lm_and_tokenizer(
 def get_client_response(client_prompt, args):
     model_name=args.model_name_or_path
     base_url=args.base_url
-    if "critic" in args.prompt_type:
-        critic = True 
-    else:
-        critic = False
     client = load_client(base_url)
-    if critic:
-        completion = client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {"role": "system", "content": "You will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}."},
-                {"role": "user", "content": client_prompt["prompt"]}, # current_prompt结构是(idx, prompt)
-            ]
-        )
-    else:
-        completion = client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {"role": "system", "content": "Please reason step by step, and put your final answer within \\boxed{{}}."},
-                {"role": "user", "content": client_prompt["prompt"]},
-            ]
-        )
+    completion = client.chat.completions.create(
+        model=model_name,
+        messages=[
+            {"role": "system", "content": PROMPT_TEMPLATES[args.prompt_type]},
+            {"role": "user", "content": client_prompt["prompt"]},
+        ]
+    )
     output = json.loads(completion.model_dump_json())["choices"][0]["message"]["content"]
     return (client_prompt["idx"], output)
 

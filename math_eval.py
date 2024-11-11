@@ -82,14 +82,17 @@ def prepare_data(data_name, args):
     # get out_file name
     dt_string = datetime.now().strftime("%m-%d_%H-%M")
     model_name = "/".join(args.model_name_or_path.split("/")[-2:])
-    out_file_prefix = f"{args.split}_{args.prompt_type}_{args.num_test_sample}_seed{args.seed}_t{args.temperature}"
     output_dir = args.output_dir
     if not os.path.exists(output_dir):
         output_dir = f"outputs/{output_dir}"
-    out_file = f"{output_dir}/{data_name}/{out_file_prefix}_s{args.start}_e{args.end}.jsonl"
+    out_file_prefix = f"{args.split}_{args.prompt_type}_{args.num_test_sample}_seed{args.seed}_t{args.temperature}"
+    if "critic" in args.prompt_type:
+        out_file = f"{output_dir}/{data_name}/{out_file_prefix}_s{args.start}_e{args.end}.jsonl"
+    else:
+        out_file = f"{output_dir}/{data_name}/test.jsonl"
     os.makedirs(f"{output_dir}/{data_name}", exist_ok=True)
 
-    # load all processed samples
+    # TODO: 删掉对应的重写逻辑，强制重写
     processed_samples = []
     if not args.overwrite:
         processed_files = [
@@ -412,7 +415,11 @@ def main(llm, tokenizer, data_name, args):
                 )
 
         sample.pop("prompt")
-        sample.update({"code": code, "pred": preds, "report": reports})
+        # TODO：code的list改一下，另外critic好像变成了pred
+        if "critic" in args.prompt_type:
+            sample.update({"critic": code[0], "pred": preds, "report": reports})
+        else:
+            sample.update({"reasoning": code[0], "pred": preds, "report": reports})
         all_samples.append(sample)
 
     # add processed samples

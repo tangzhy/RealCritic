@@ -94,12 +94,6 @@ PROMPT_TEMPLATES = {
         "{output}",
         "\n\n\n",
     ),
-    "deepseek-math": (
-        "User: {input}\nPlease reason step by step, "
-        "and put your final answer within \\boxed{{}}.\n\nAssistant:",
-        "{output}",
-        "\n\n\n",
-    ),
     "kpmath": (
         "User: Please reason step by step and put your final answer at the end "
         'with "The answer is: ".\n\n{input}\n\nAssistant:',
@@ -156,32 +150,7 @@ PROMPT_TEMPLATES = {
         "{output}",
         "\n\n",
     ),
-    "mistral": (
-        "[INST] {input}[/INST]",
-        "{output}",
-        "\n\n",
-    ),
     "numina": ("### Problem: {input}\n### Solution:", " {output}", "\n\n"),
-    "llama-3": (
-        "<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n{input}<|eot_id|><|start_header_id|>assistant<|end_header_id|>",
-        "{output}",
-        "\n",
-    ),
-    "llama-3-cot": (
-        "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nPlease reason step by step, and put your final answer within \\boxed{{}}.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{input}<|eot_id|><|start_header_id|>assistant<|end_header_id|>",
-        "{output}",
-        "\n\n",
-    ),
-    "llama-3.1": (
-        "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 26 Jul 2024\n\n<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{input}<|eot_id|><|start_header_id|>assistant<|end_header_id|>",
-        "{output}",
-        "\n\n",
-    ),
-    "llama-3.1-cot": (
-        "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nPlease reason step by step, and put your final answer within \\boxed{{}}.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{input}<|eot_id|><|start_header_id|>assistant<|end_header_id|>",
-        "{output}",
-        "\n\n",
-    ),
     "qwen25-math-critic": (
         "<|im_start|>system\nYou will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.<|im_end|>\n"
         "<|im_start|>user\n{input}<|im_end|>\n"
@@ -189,8 +158,61 @@ PROMPT_TEMPLATES = {
         "{output}",
         "\n\n",
     ),
+    "qwen25-math-judging-critic": (
+        "<|im_start|>system\nYou will be provided with a question and a reasoning. The reasoning may be correct or incorrect. You need to make a judgment; if you think the reasoning is correct, put the answer within \boxed{{}}. If you think the reasoning is wrong, first you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.<|im_end|>\n"
+        "<|im_start|>user\n{input}<|im_end|>\n"
+        "<|im_start|>assistant\n",
+        "{output}",
+        "\n\n",
+    ),
+    "llama-3.1-cot": (
+        "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 26 Jul 2024\n\nPlease reason step by step, and put your final answer within \\boxed{{}}.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{input}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n\n",
+        "{output}",
+        "\n\n",
+    ),
     "llama-3.1-critic": (
-        "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nYou will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{input}<|eot_id|><|start_header_id|>assistant<|end_header_id|>",
+        "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 26 Jul 2024\n\nYou will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{input}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n\n",
+        "{output}",
+        "\n\n",
+    ),
+    "llama-3.1-judging-critic": (
+        "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 26 Jul 2024\n\nYou will be provided with a question and a reasoning. The reasoning may be correct or incorrect. You need to make a judgment; if you think the reasoning is correct, put the answer within \boxed{{}}. If you think the reasoning is wrong, first you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{input}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n\n",
+        "{output}",
+        "\n\n",
+    ),
+    "deepseek-math-cot": (
+        "<｜begin▁of▁sentence｜>Please reason step by step, and put your final answer within \\boxed{{}}."
+        "\n\nUser: {input}"
+        "\n\nAssistant:",
+        "{output}",
+        "\n\n\n",
+    ),
+    "deepseek-math-critic": (
+        "<｜begin▁of▁sentence｜>You will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}."
+        "\n\nUser: {input}"
+        "\n\nAssistant:",
+        "{output}",
+        "\n\n\n",
+    ),
+    "deepseek-math-judging-critic": (
+        "<｜begin▁of▁sentence｜>You will be provided with a question and a reasoning. The reasoning may be correct or incorrect. You need to make a judgment; if you think the reasoning is correct, put the answer within \boxed{{}}. If you think the reasoning is wrong, first you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}."
+        "\n\nUser: {input}"
+        "\n\nAssistant:",
+        "{output}",
+        "\n\n\n",
+    ),
+    "mistral-cot": (
+        "<s>[INST] Please reason step by step, and put your final answer within \\boxed{{}}.\n\n{input}[/INST]",
+        "{output}",
+        "\n\n",
+    ),
+    "mistral-critic": (
+        "<s>[INST] You will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.\n\n{input}[/INST]",
+        "{output}",
+        "\n\n",
+    ),
+    "mistral-judging-critic": (
+        "<s>[INST] You will be provided with a question and a reasoning. The reasoning may be correct or incorrect. You need to make a judgment; if you think the reasoning is correct, put the answer within \boxed{{}}. If you think the reasoning is wrong, first you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.\n\n{input}[/INST]",
         "{output}",
         "\n\n",
     )
