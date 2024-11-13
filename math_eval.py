@@ -190,7 +190,10 @@ def main(llm, tokenizer, data_name, args):
         #     continue
         # gt_cot, gt_ans = parse_ground_truth(example, data_name)
         # example["gt_ans"] = gt_ans
-        full_prompt = construct_prompt(example, data_name, args)
+        if "api" in args.prompt_type:
+            full_prompt = example["question"]
+        else:
+            full_prompt = construct_prompt(example, data_name, args)
 
         if idx == args.start:
             print(full_prompt)
@@ -266,12 +269,6 @@ def main(llm, tokenizer, data_name, args):
         current_prompts = remain_prompts
         if len(current_prompts) == 0:
             break
-
-        # get all outputs
-        # if args.use_api:
-            # current_prompts 直接输入模型，为了返回的顺序能够是正确的
-            # pass
-        # else:
         prompts = [item[1] for item in current_prompts]
         if args.use_vllm:
             outputs = llm.generate(
@@ -299,10 +296,10 @@ def main(llm, tokenizer, data_name, args):
             client_prompts = [{"idx": item[0], "prompt": item[1]} for item in current_prompts]
             # lock = Manager().Lock()
             get_client_response_paltial = partial(get_client_response, args=args, stop=stop_words)
-            batch_size = 1
+            batch_size = 100
             num_processed = 0
             num_total = len(client_prompts)
-            with ProcessPool(max_workers=8) as pool:
+            with ProcessPool(max_workers=5) as pool:
                 for i in range(0, len(client_prompts), batch_size):
                     batch_prompts = client_prompts[i: i + batch_size]
                     future = pool.map(get_client_response_paltial, batch_prompts, timeout=60)

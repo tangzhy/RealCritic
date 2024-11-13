@@ -11,7 +11,7 @@ import json
 PROMPT_TEMPLATES = {
     "api-critic": "You will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.",
     "api-judging-critic": "You will be provided with a question and a reasoning. The reasoning may be correct or incorrect. You need to make a judgment; if you think the reasoning is correct, put the answer within \boxed{{}}. If you think the reasoning is wrong, first you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.",
-    "api-direct-reasoning": "Please reason step by step, and put your final answer within \\boxed{{}}."
+    "api-cot": "Please reason step by step, and put your final answer within \\boxed{{}}."
 }
 
 class KeywordsStoppingCriteria(StoppingCriteria):
@@ -227,7 +227,7 @@ def get_client_response(client_prompt, args, stop):
         ],
         temperature=args.temperature, 
         top_p=args.top_p, 
-        max_tokens=args.max_tokens, 
+        max_tokens=args.max_tokens_per_call, 
         n=args.n_sampling, 
         stop=stop, 
     )
