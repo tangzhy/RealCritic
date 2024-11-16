@@ -1,6 +1,5 @@
 import random
 import os
-os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3"
 import argparse
 import time
 from vllm import LLM, SamplingParams
@@ -44,6 +43,7 @@ def parse_args():
     parser.add_argument("--use_safetensors", action="store_true")
     parser.add_argument("--num_shots", type=int, default=0)
     parser.add_argument("--use_api", action="store_true")
+    parser.add_argument("--multi_turn",type=int, default=1)
     parser.add_argument(
         "--apply_chat_template",
         action="store_true",
@@ -251,7 +251,7 @@ def main(llm, tokenizer, data_name, args):
     if args.prompt_type in ["cot"]:
         stop_words.append("\n\nQuestion:")
     if args.prompt_type in ["pal", "tool-integrated", "jiuzhang_tora"]:
-        stop_words.extend(["\n\n---", "```output"])
+        stop_words.extend(["\n\n---", "```output", "\n---"])
     elif args.prompt_type in ["wizard_zs", "platypus_fs"]:
         stop_words.extend(["Instruction", "Response"])
     elif "jiuzhang" in args.prompt_type:
@@ -264,110 +264,116 @@ def main(llm, tokenizer, data_name, args):
     # start inference
     # measure time use
     start_time = time.time()
-    for epoch in range(max_func_call):
-        print("-" * 20, "Epoch", epoch)
-        current_prompts = remain_prompts
-        if len(current_prompts) == 0:
-            break
-        prompts = [item[1] for item in current_prompts]
-        if args.use_vllm:
-            outputs = llm.generate(
-                prompts,
-                SamplingParams(
-                    temperature=args.temperature,
-                    top_p=args.top_p,
-                    max_tokens=args.max_tokens_per_call,
-                    n=1,
-                    stop=stop_words,
-                    stop_token_ids=(
-                        [151645, 151643]
-                        if "qwen2" in args.model_name_or_path.lower()
-                        else None
+    multi_turn = args.multi_turn
+    for turn in range(multi_turn):
+        for epoch in range(max_func_call):
+            print("-" * 20, "Epoch", epoch)
+            current_prompts = remain_prompts
+            if len(current_prompts) == 0:
+                break
+            prompts = [item[1] for item in current_prompts]
+            if args.use_vllm:
+                outputs = llm.generate(
+                    prompts,
+                    SamplingParams(
+                        temperature=args.temperature,
+                        top_p=args.top_p,
+                        max_tokens=args.max_tokens_per_call,
+                        n=1,
+                        stop=stop_words,
+                        stop_token_ids=(
+                            [151645, 151643]
+                            if "qwen2" in args.model_name_or_path.lower()
+                            else None
+                        ),
                     ),
-                ),
-            )
-            outputs = sorted(
-                outputs, key=lambda x: int(x.request_id)
-            )  # sort outputs by request_id
-            outputs = [output.outputs[0].text for output in outputs]
-        elif args.use_api:
-            outputs = []
-            timeout_cnt = 0
-            client_prompts = [{"idx": item[0], "prompt": item[1]} for item in current_prompts]
-            # lock = Manager().Lock()
-            get_client_response_paltial = partial(get_client_response, args=args, stop=stop_words)
-            batch_size = 100
-            num_processed = 0
-            num_total = len(client_prompts)
-            with ProcessPool(max_workers=5) as pool:
-                for i in range(0, len(client_prompts), batch_size):
-                    batch_prompts = client_prompts[i: i + batch_size]
-                    future = pool.map(get_client_response_paltial, batch_prompts, timeout=60)
-                    iterator = future.result()
-                    with tqdm(total=len(batch_prompts), desc="Evaluate") as progress_bar:
-                        while True:
-                            try:
-                                result = next(iterator)
-                                num_processed += batch_size
-                                print(f"progress: {num_processed/num_total}.")
-                                outputs.append(result)
-                            except StopIteration:
-                                break
-                            except TimeoutError as error:
-                                print(error)
-                                timeout_cnt += 1
-                            except Exception as error:
-                                print(error)
-                                exit()
-                            progress_bar.update(1)
-            outputs = sorted(outputs, key=lambda x: x[0])
-            outputs = [output[1] for output in outputs]
-        else:
-            outputs = generate_completions(
-                model=llm,
-                tokenizer=tokenizer,
-                prompts=prompts,
-                max_new_tokens=args.max_tokens_per_call,
-                batch_size=16,
-                stop_id_sequences=stop_words,
-            )
-
-        assert len(outputs) == len(current_prompts)
-
-        # process all outputs
-        remain_prompts = []
-        remain_codes = []
-        for (i, query), output in zip(current_prompts, outputs):
-            output = output.rstrip()
-            query += output
-            if args.prompt_type == "pal":
-                remain_prompts.append((i, query))
-                if "```python" in output:
-                    output = extract_program(query)
-                remain_codes.append(output)
-            elif args.prompt_type == "cot":
-                end_prompts.append((i, query))
-            elif "boxed" not in output and output.endswith("```"):
-                program = extract_program(query)
-                remain_prompts.append((i, query))
-                remain_codes.append(program)
+                )
+                outputs = sorted(
+                    outputs, key=lambda x: int(x.request_id)
+                )  # sort outputs by request_id
+                outputs = [output.outputs[0].text for output in outputs]
+            elif args.use_api:
+                outputs = []
+                timeout_cnt = 0
+                client_prompts = [{"idx": item[0], "prompt": item[1]} for item in current_prompts]
+                # lock = Manager().Lock()
+                get_client_response_paltial = partial(get_client_response, args=args, stop=stop_words)
+                batch_size = 100
+                num_processed = 0
+                num_total = len(client_prompts)
+                with ProcessPool(max_workers=5) as pool:
+                    for i in range(0, len(client_prompts), batch_size):
+                        batch_prompts = client_prompts[i: i + batch_size]
+                        future = pool.map(get_client_response_paltial, batch_prompts, timeout=60)
+                        iterator = future.result()
+                        with tqdm(total=len(batch_prompts), desc="Evaluate") as progress_bar:
+                            while True:
+                                try:
+                                    result = next(iterator)
+                                    num_processed += batch_size
+                                    print(f"progress: {num_processed/num_total}.")
+                                    outputs.append(result)
+                                except StopIteration:
+                                    break
+                                except TimeoutError as error:
+                                    print(error)
+                                    timeout_cnt += 1
+                                except Exception as error:
+                                    print(error)
+                                    exit()
+                                progress_bar.update(1)
+                outputs = sorted(outputs, key=lambda x: x[0])
+                outputs = [output[1] for output in outputs]
             else:
-                end_prompts.append((i, query))
+                outputs = generate_completions(
+                    model=llm,
+                    tokenizer=tokenizer,
+                    prompts=prompts,
+                    max_new_tokens=args.max_tokens_per_call,
+                    batch_size=16,
+                    stop_id_sequences=stop_words,
+                )
 
-        # execute the remain prompts
-        remain_results = executor.batch_apply(remain_codes)
-        for k in range(len(remain_prompts)):
-            i, query = remain_prompts[k]
-            res, report = remain_results[k]
-            exec_result = res if res else report
-            if "pal" in args.prompt_type:
-                exec_result = "\\boxed{" + exec_result + "}"
-            exec_result = f"\n```output\n{exec_result}\n```\n"
-            query += exec_result
-            # not end
-            if epoch == max_func_call - 1:
-                query += "\nReach max function call limit."
-            remain_prompts[k] = (i, query)
+            assert len(outputs) == len(current_prompts)
+
+            # process all outputs
+            remain_prompts = []
+            remain_codes = []
+            for (i, query), output in zip(current_prompts, outputs):
+                output = output.rstrip()
+                query += output
+                if args.prompt_type == "pal":
+                    remain_prompts.append((i, query))
+                    if "```python" in output:
+                        output = extract_program(query)
+                    remain_codes.append(output)
+                elif args.prompt_type == "cot":
+                    if turn != multi_turn - 1:
+                        end_prompts.append((i, query + "\nTo confirm that your critic is correct, please critic all the content again, and place the final answer in \\boxed{{}}."))
+                elif "boxed" not in output and output.endswith("```"):
+                    program = extract_program(query)
+                    remain_prompts.append((i, query))
+                    remain_codes.append(program)
+                else:
+                    end_prompts.append((i, query + "\nTo confirm that your critic is correct, please critic all the content again, and place the final answer in \\boxed{{}}."))
+
+            # execute the remain prompts
+            remain_results = executor.batch_apply(remain_codes)
+            for k in range(len(remain_prompts)):
+                i, query = remain_prompts[k]
+                res, report = remain_results[k]
+                exec_result = res if res else report
+                if "pal" in args.prompt_type:
+                    exec_result = "\\boxed{" + exec_result + "}"
+                exec_result = f"\n```output\n{exec_result}\n```\n"
+                query += exec_result
+                # not end
+                if epoch == max_func_call - 1:
+                    query += "\nReach max function call limit."
+                remain_prompts[k] = (i, query)
+        input_prompts = end_prompts
+        remain_prompts = end_prompts
+        
 
     # unsolved samples
     print("Unsolved samples:", len(remain_prompts))
