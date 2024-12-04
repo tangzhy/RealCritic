@@ -80,6 +80,16 @@ python3 -u math_eval.py \
 	--use_vllm \
 	--save_outputs \
 	--overwrite
+
+# post check
+python3 -u model_eval_critic.py \
+	--data_dir path/for/critic/math_eval \
+	--model_name_or_path /post/check/model \
+	--output_dir /output/dir/ \
+	--data_name ${DATA_NAME} \
+	--seed 0 \
+	--temperature 0 \
+	--top_p 1 \
 ```
 
 下面的API和多轮critic暂时不要运行，还没来得及测试user prompt逻辑改变带来的影响。
