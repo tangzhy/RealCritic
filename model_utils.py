@@ -8,12 +8,6 @@ import os
 from openai import OpenAI
 import json
 
-PROMPT_TEMPLATES = {
-    "api-critic": "You will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.",
-    "api-judging-critic": "You will be provided with a question and a reasoning. The reasoning may be correct or incorrect. You need to make a judgment; if you think the reasoning is correct, put the answer within \boxed{{}}. If you think the reasoning is wrong, first you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.",
-    "api-cot": "Please reason step by step, and put your final answer within \\boxed{{}}."
-}
-
 class KeywordsStoppingCriteria(StoppingCriteria):
     def __init__(self, keywords_str, tokenizer):
         StoppingCriteria.__init__(self)
@@ -216,15 +210,12 @@ def load_hf_lm_and_tokenizer(
     model.eval()
     return model, tokenizer
 
-def get_client_response(client_prompt, args, stop):
+def get_client_response(client_messages, args, stop):
     model_name=args.model_name_or_path
     client = load_client()
     completion = client.chat.completions.create(
         model=model_name,
-        messages=[
-            {"role": "system", "content": PROMPT_TEMPLATES[args.prompt_type]},
-            {"role": "user", "content": client_prompt["prompt"]},
-        ],
+        messages=client_messages["message"],
         temperature=args.temperature, 
         top_p=args.top_p, 
         max_tokens=args.max_tokens_per_call, 
@@ -232,11 +223,7 @@ def get_client_response(client_prompt, args, stop):
         stop=stop, 
     )
     output = json.loads(completion.model_dump_json())["choices"][0]["message"]["content"]
-    print("-" * 20 + "prompt" + "-" * 20)
-    print(client_prompt["prompt"])
-    print("-" * 20 + "completion" + "-" * 20)
-    print(output)
-    return (client_prompt["idx"], output)
+    return (client_messages["idx"], output)
 
 
 

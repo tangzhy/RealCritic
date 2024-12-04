@@ -7,9 +7,6 @@ import numpy as np
 from pathlib import Path
 from typing import Iterable, Union, Any
 
-from examples import get_examples
-
-
 def set_seed(seed: int = 42) -> None:
     np.random.seed(seed)
     random.seed(seed)
@@ -48,248 +45,71 @@ def lower_keys(example):
             new_example[key] = value
     return new_example
 
-
-EXAMPLES = get_examples()
-
-
-def load_prompt(data_name, prompt_type, num_shots):
-    if not num_shots:
-        return []
-
-    if data_name in ["gsm_hard", "svamp", "tabmwp", "asdiv", "mawps"]:
-        data_name = "gsm8k"
-    if data_name in ["math_oai", "hungarian_exam", "math-oai", "aime24", "amc23"]:
-        data_name = "math"
-    if data_name in ["sat_math"]:
-        data_name = "mmlu_stem"
-    if data_name in [
-        "gaokao2024_I",
-        "gaokao2024_II",
-        "gaokao_math_qa",
-        "gaokao2024_mix",
-        "cn_middle_school",
-    ]:
-        data_name = "gaokao"
-
-    if prompt_type in ["tool-integrated"]:
-        prompt_type = "tora"
-
-    return EXAMPLES[data_name][:num_shots]
-
-
-PROMPT_TEMPLATES = {
-    "direct": ("Question: {input}\nAnswer: ", "{output}", "\n\n"),
-    "cot": ("Question: {input}\nAnswer: ", "{output}", "\n\n\n"),
-    "pal": ("Question: {input}\n\n", "{output}", "\n---\n"),
-    "tool-integrated": ("Question: {input}\n\nSolution:\n", "{output}", "\n---\n"),
-    "self-instruct": ("<|user|>\n{input}\n<|assistant|>\n", "{output}", "\n"),
-    "tora": ("<|user|>\n{input}\n<|assistant|>\n", "{output}", "\n"),
-    "wizard_zs": (
-        "### Instruction:\n{input}\n\n### Response: Let's think step by step.",
-        "{output}",
-        "\n\n\n",
-    ),
-    "platypus_fs": (
-        "### Instruction:\n{input}\n\n### Response:\n",
-        "{output}",
-        "\n\n\n",
-    ),
-    "kpmath": (
-        "User: Please reason step by step and put your final answer at the end "
-        'with "The answer is: ".\n\n{input}\n\nAssistant:',
-        "{output}",
-    ),
-    "jiuzhang": (
-        "## Question\n{input}\n\n## Solution\n",
-        "{output}",
-        "\n\n\n",
-    ),
-    "jiuzhang_tora": (
-        "## Question\n{input}\n\n## Code Solution\n",
-        "{output}",
-        "\n\n\n",
-    ),
-    "jiuzhang_nl": (
-        "## Question\n{input}\n\n## Natural Language Solution\n",
-        "{output}",
-        "\n\n\n",
-    ),
-    "mmiqc": (
-        'Please solve the following problem and put your answer at the end with "The answer is: ".\n\n{input}\n\n',
-        "{output}",
-        "\n\n\n",
-    ),
-    "abel": (
-        "Question:\n{input}\nAnswer:\nLet's think step by step.\n",
-        "{output}",
-        "\n\n",
-    ),
-    "shepherd": ("{input}\n", "{output}", "\n\n\n"),
-    "qwen-boxed": (
-        "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n"
-        "<|im_start|>user\n{input}\nPlease reason step by step, and put your final answer within \\boxed{{}}.<|im_end|>\n"
-        "<|im_start|>assistant\n",
-        "{output}",
-        "\n\n",
-    ),
-    "qwen25-math-cot": (
-        "<|im_start|>system\nPlease reason step by step, and put your final answer within \\boxed{{}}.<|im_end|>\n"
-        "<|im_start|>user\n{input}<|im_end|>\n"
-        "<|im_start|>assistant\n",
-        "{output}",
-        "\n\n",
-    ),
-    "mathstral": (
-        "{input}\nPlease reason step by step, and put your final answer within \\boxed{{}}.",
-        "{output}",
-        "\n\n",
-    ),
-    "internlm-math-fs": ("Question:{input}\nAnswer:", "{output}", "\n"),
-    "internlm-math-chat": (
-        "<|im_start|>user\n{input}<|im_end|>\n" "<|im_start|>assistant\n",
-        "{output}",
-        "\n\n",
-    ),
-    "numina": ("### Problem: {input}\n### Solution:", " {output}", "\n\n"),
-    "qwen25-math-critic": (
-        "<|im_start|>system\nYou will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.<|im_end|>\n"
-        "<|im_start|>user\n{input}<|im_end|>\n"
-        "<|im_start|>assistant\n",
-        "{output}",
-        "\n\n",
-    ),
-    "qwen25-math-judging-critic": (
-        "<|im_start|>system\nYou will be provided with a question and a reasoning. The reasoning may be correct or incorrect. You need to make a judgment; if you think the reasoning is correct, put the answer within \boxed{{}}. If you think the reasoning is wrong, first you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.<|im_end|>\n"
-        "<|im_start|>user\n{input}<|im_end|>\n"
-        "<|im_start|>assistant\n",
-        "{output}",
-        "\n\n",
-    ),
-    "llama-3.1-cot": (
-        "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 26 Jul 2024\n\nPlease reason step by step, and put your final answer within \\boxed{{}}.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{input}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n\n",
-        "{output}",
-        "\n\n",
-    ),
-    "llama-3.1-critic": (
-        "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 26 Jul 2024\n\nYou will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{input}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n\n",
-        "{output}",
-        "\n\n",
-    ),
-    "llama-3.1-judging-critic": (
-        "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 26 Jul 2024\n\nYou will be provided with a question and a reasoning. The reasoning may be correct or incorrect. You need to make a judgment; if you think the reasoning is correct, put the answer within \boxed{{}}. If you think the reasoning is wrong, first you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{input}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n\n",
-        "{output}",
-        "\n\n",
-    ),
-    "deepseek-math-cot": (
-        "<｜begin▁of▁sentence｜>Please reason step by step, and put your final answer within \\boxed{{}}."
-        "\n\nUser: {input}"
-        "\n\nAssistant:",
-        "{output}",
-        "\n\n\n",
-    ),
-    "deepseek-math-critic": (
-        "<｜begin▁of▁sentence｜>You will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}."
-        "\n\nUser: {input}"
-        "\n\nAssistant:",
-        "{output}",
-        "\n\n\n",
-    ),
-    "deepseek-math-judging-critic": (
-        "<｜begin▁of▁sentence｜>You will be provided with a question and a reasoning. The reasoning may be correct or incorrect. You need to make a judgment; if you think the reasoning is correct, put the answer within \boxed{{}}. If you think the reasoning is wrong, first you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}."
-        "\n\nUser: {input}"
-        "\n\nAssistant:",
-        "{output}",
-        "\n\n\n",
-    ),
-    "mistral-cot": (
-        "<s>[INST] Please reason step by step, and put your final answer within \\boxed{{}}.\n\n{input}[/INST]",
-        "{output}",
-        "\n\n",
-    ),
-    "mistral-critic": (
-        "<s>[INST] You will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.\n\n{input}[/INST]",
-        "{output}",
-        "\n\n",
-    ),
-    "mistral-judging-critic": (
-        "<s>[INST] You will be provided with a question and a reasoning. The reasoning may be correct or incorrect. You need to make a judgment; if you think the reasoning is correct, put the answer within \boxed{{}}. If you think the reasoning is wrong, first you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.\n\n{input}[/INST]",
-        "{output}",
-        "\n\n",
-    )
+SYSTEM_PROMPT_TEMPLATES = {
+    "direct-cot": "Please reason step by step, and put your final answer within \\boxed{{}}.",
+    "cot-critic": "You will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.",
+    "cot-judging-critic": "You will be provided with a question and a reasoning. The reasoning may be correct or incorrect. You need to make a judgment; if you think the reasoning is correct, put the answer within \\boxed{{}}. If you think the reasoning is wrong, first you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.",
+    "tora": "Please integrate natural language reasoning with python programs to solve the problem above, and put your final answer within \\boxed{}.",
+    "tora-critic": "You will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Please integrate natural language reasoning with python programs to critic the reasoning above, and put your final answer within \\boxed{}.",
+    "tora-judging-critic": "You will be provided with a question and a reasoning. The reasoning may be correct or incorrect. You need to make a judgment; if you think the reasoning is correct, put the answer within \\boxed{{}}. If you think the reasoning is wrong, first you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Please integrate natural language reasoning with python programs to critic the reasoning above, and put your final answer within \\boxed{}."
 }
 
+MULTI_TURN_CRITIC = {
+    "cot": "Are you sure your critic is correct? Please reconsider all the content above and identify any possible errors. Place the final answer in \\boxed{{}}.",
+    "tora": "Are you sure your critic is correct? Please integrate natural language reasoning with python programs to reconsider all the content above and identify any possible errors. Place the final answer in \\boxed{{}}."
+}
 
-def construct_prompt(example, data_name, args):
-    if args.adapt_few_shot and data_name in [
-        "gaokao2024_I",
-        "gaokao2024_II",
-        "gaokao_math_qa",
-        "gaokao2024_mix",
-        "cn_middle_school",
-    ]:
-        demos = load_prompt(data_name, args.prompt_type, 5)
-    else:
-        demos = load_prompt(data_name, args.prompt_type, args.num_shots)
-    prompt_type = args.prompt_type
-    if prompt_type == "platypus_fs":
-        prompt_type = "cot"
-    if prompt_type == "tool-integrated":
-        prompt_type = "tora"
+USER_PROMPT_TEMPLATE = {
+    "default-cot": "## Question\n\n{question}",
+    "default-critic": "## Question\n\n{question}\n\nReasoning\n\n{reasoning}"
+}
 
-    prompt_temp = PROMPT_TEMPLATES[args.prompt_type]
-
-    splitter = prompt_temp[2]
-    input_template, output_template, splitter = (
-        prompt_temp[0],
-        prompt_temp[1],
-        prompt_temp[2],
-    )
-    if args.prompt_type == "qwen25-math-cot":
-        # Hotfix to support putting all demos into a single turn
-        demo_prompt = splitter.join([q + "\n" + a for q, a in demos])
-    else:
-        demo_prompt = splitter.join(
-            [
-                input_template.format(input=q) + output_template.format(output=a)
-                for q, a in demos
-            ]
-        )
-    context = input_template.format(input=example["question"])
-    if len(demo_prompt) == 0 or (
-        args.adapt_few_shot and example["gt_ans"] not in ["A", "B", "C", "D", "E"]
-    ):
-        full_prompt = context
-    else:
-        if args.prompt_type == "qwen25-math-cot":
-            # Hotfix to supportting put all demos into a single turn
-            full_prompt = demo_prompt + splitter + example["question"]
-            full_prompt = input_template.format(input=full_prompt)
+def construct_message(args, example=None, message=[], assistant = None):
+    if len(message) == 0:
+        prompt_type = args.prompt_type
+        user_prompt_type = args.user_prompt_type
+        assert example is not None
+        prompt_template = SYSTEM_PROMPT_TEMPLATES[prompt_type]
+        user_prompt_template = USER_PROMPT_TEMPLATE[user_prompt_type]
+        if "critic" in user_prompt_type:
+            user_prompt = user_prompt_template.format(question=example["question"], reasoning=example["reasoning"])
+        elif "cot" in user_prompt_type:
+            user_prompt = user_prompt_template.format(question=example["question"])
         else:
-            full_prompt = demo_prompt + splitter + context
+            raise NotImplementedError
+        message = [
+            {"role": "system", "content": prompt_template},
+            {"role": "user", "content": user_prompt}
+        ]
+    else:
+        message.append({"role": "assistant", "content": assistant})
+        # TODO：多轮critic的prompt也需要能够定制
+        if "cot" in args.prompt_type:
+            message.append({"role": "user", "content": MULTI_TURN_CRITIC["cot"]})
+        elif "tora" in args.prompt_type:
+            message.append({"role": "user", "content": MULTI_TURN_CRITIC["tora"]})
+        else:
+            raise
+    return message
 
-    if args.prompt_type == "platypus_fs":
-        full_prompt_temp = (
-            "Below is an instruction that describes a task. "
-            "Write a response that appropriately completes the request.\n\n"
-            "### Instruction:\n{instruction}\n\n### Response:\n"
-        )
-        full_prompt = full_prompt_temp.format(instruction=full_prompt)
+def construct_prompt(message, tokenizer):
+    return tokenizer.apply_chat_template(message, tokenize=False, add_generation_prompt=True)
 
-    if prompt_type == "tora":
-        full_prompt = (
-            """Integrate step-by-step reasoning and Python code to solve math problems using the following guidelines:
+#     if prompt_type == "tora":
+#         full_prompt = (
+#             """Integrate step-by-step reasoning and Python code to solve math problems using the following guidelines:
 
-- Analyze the question and write functions to solve the problem; the function should not take any arguments.
-- Present the final result in LaTeX using a `\boxed{}` without any units.
-- Utilize the `pi` symbol and `Rational`` from Sympy for $\pi$ and fractions, and simplify all fractions and square roots without converting them to decimal values.
+# - Analyze the question and write functions to solve the problem; the function should not take any arguments.
+# - Present the final result in LaTeX using a `\boxed{}` without any units.
+# - Utilize the `pi` symbol and `Rational`` from Sympy for $\pi$ and fractions, and simplify all fractions and square roots without converting them to decimal values.
 
-Here are some examples you may refer to:
+# Here are some examples you may refer to:
 
----
+# ---
 
-"""
-            + full_prompt
-        )
+# """
+#             + full_prompt
+#         )
 
     return full_prompt.strip(" ")  # important!
 

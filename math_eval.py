@@ -6,12 +6,10 @@ from vllm import LLM, SamplingParams
 from datetime import datetime
 from tqdm import tqdm
 from pebble import ProcessPool
-from multiprocessing import Manager
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer
 import json
 from evaluate import evaluate
-from utils import set_seed, load_jsonl, save_jsonl, construct_prompt
+from utils import set_seed, load_jsonl, save_jsonl, construct_message, construct_prompt
 from parser import *
 from trajectory import *
 from data_loader import load_data
@@ -25,8 +23,9 @@ def parse_args():
     parser.add_argument("--data_names", default="gsm8k,math", type=str)
     parser.add_argument("--data_dir", default="./data", type=str)
     parser.add_argument("--model_name_or_path", default="gpt-4", type=str)
-    parser.add_argument("--output_dir", default="./output", type=str)
-    parser.add_argument("--prompt_type", default="tool-integrated", type=str)
+    parser.add_argument("--output_dir", default="math_output", type=str)
+    parser.add_argument("--prompt_type", default="direct-cot", type=str)
+    parser.add_argument("--user_prompt_type", default="default-critic", type=str)
     parser.add_argument("--split", default="test", type=str)
     parser.add_argument("--num_test_sample", default=-1, type=int)  # -1 for full data
     parser.add_argument("--seed", default=0, type=int)
@@ -80,13 +79,14 @@ def prepare_data(data_name, args):
 
     # get out_file name
     dt_string = datetime.now().strftime("%m-%d_%H-%M")
-    model_name = "/".join(args.model_name_or_path.split("/")[-2:])
     output_dir = args.output_dir
+    if "math_eval" not in output_dir:
+        output_dir += "/math_eval"
     if not os.path.exists(output_dir):
         output_dir = f"outputs/{output_dir}"
     out_file_prefix = f"{args.split}_{args.prompt_type}_{args.num_test_sample}_seed{args.seed}_t{args.temperature}"
     if "critic" in args.prompt_type:
-        out_file = f"{output_dir}/{data_name}/{out_file_prefix}_s{args.start}_e{args.end}.jsonl"
+        out_file = f"{output_dir}/{data_name}/{out_file_prefix}_s{args.start}_e{args.end}_turn{args.multi_turn}.jsonl"
     else:
         out_file = f"{output_dir}/{data_name}/test.jsonl"
     os.makedirs(f"{output_dir}/{data_name}", exist_ok=True)
@@ -114,6 +114,9 @@ def prepare_data(data_name, args):
 
 def setup(args):
     # load model
+    if args.multi_turn > 1 and "tora" in args.prompt_type:
+        print("The program has automatically exited because it is not recommended to use tora for multi-turn critic.")
+        exit()
     available_gpus = os.environ["CUDA_VISIBLE_DEVICES"].split(",")
     if args.use_vllm:
         llm = LLM(
@@ -122,11 +125,9 @@ def setup(args):
             pipeline_parallel_size=args.pipeline_parallel_size,
             trust_remote_code=True,
         )
-        tokenizer = None
-        if args.apply_chat_template:
-            tokenizer = AutoTokenizer.from_pretrained(
-                args.model_name_or_path, trust_remote_code=True
-            )
+        tokenizer = AutoTokenizer.from_pretrained(
+            args.model_name_or_path, trust_remote_code=True
+        )
     elif args.use_api:
         llm = None
         tokenizer = None
@@ -179,21 +180,17 @@ def main(llm, tokenizer, data_name, args):
         executor = PythonExecutor(get_answer_from_stdout=True)
 
     samples = []
+    messages = []
     for example in tqdm(examples, total=len(examples)):
         idx = example["idx"]
 
-        if "critic" in args.prompt_type:
-            example["question"] = example["question"] + "\n\nReasoning\n\n" + example["reasoning"]
-        # # parse question and answer
-        # example["question"] = parse_question(example, data_name)
-        # if example["question"] == "":
-        #     continue
-        # gt_cot, gt_ans = parse_ground_truth(example, data_name)
-        # example["gt_ans"] = gt_ans
-        if "api" in args.prompt_type:
+        message = construct_message(args, example)
+        messages.append(message)
+        if args.use_api:
+            # 统一框架产生的冗余代码，使用api的时候不需要full prompt
             full_prompt = example["question"]
         else:
-            full_prompt = construct_prompt(example, data_name, args)
+            full_prompt = construct_prompt(message, tokenizer)
 
         if idx == args.start:
             print(full_prompt)
@@ -226,23 +223,25 @@ def main(llm, tokenizer, data_name, args):
             if key in example:
                 sample[key] = example[key]
         samples.append(sample)
+    
+    ##
+    # samples = samples[:50]
+    # messages = messages[:50]
+    ##
 
     # repeat n times
     input_prompts = [
         sample["prompt"] for sample in samples for _ in range(args.n_sampling)
     ]
-    if args.apply_chat_template:
-        input_prompts = [
-            tokenizer.apply_chat_template(
-                [{"role": "user", "content": prompt.strip()}],
-                tokenize=False,
-                add_generation_prompt=True,
-            )
-            for prompt in input_prompts
-        ]
+    input_messages = [
+        message for message in messages for _ in range(args.n_sampling)
+    ]
+    input_prompts = [(i, prompt) for i, prompt in enumerate(input_prompts)]
     remain_prompts = input_prompts
-    remain_prompts = [(i, prompt) for i, prompt in enumerate(remain_prompts)]
+    input_messages = [(i, message) for i, message in enumerate(input_messages)]
+    remain_messages = input_messages
     end_prompts = []
+    end_messages = []
 
     max_func_call = 1 if args.prompt_type in ["cot", "pal"] else 4
 
@@ -250,8 +249,8 @@ def main(llm, tokenizer, data_name, args):
 
     if args.prompt_type in ["cot"]:
         stop_words.append("\n\nQuestion:")
-    if args.prompt_type in ["pal", "tool-integrated", "jiuzhang_tora"]:
-        stop_words.extend(["\n\n---", "```output", "\n---"])
+    if args.prompt_type in ["pal", "tora", "tora-critic", "tora-judging-critic"]:
+        stop_words.extend(["\n\n---", "```output", "\n---", "```\n"])
     elif args.prompt_type in ["wizard_zs", "platypus_fs"]:
         stop_words.extend(["Instruction", "Response"])
     elif "jiuzhang" in args.prompt_type:
@@ -264,14 +263,16 @@ def main(llm, tokenizer, data_name, args):
     # start inference
     # measure time use
     start_time = time.time()
-    multi_turn = args.multi_turn
+    # TODO: 修改了user prompt之后，multi turn的逻辑是否需要进行修改
+    multi_turn = args.multi_turn if "critic" in args.prompt_type else 1
     for turn in range(multi_turn):
         for epoch in range(max_func_call):
             print("-" * 20, "Epoch", epoch)
             current_prompts = remain_prompts
+            current_messages = remain_messages
             if len(current_prompts) == 0:
                 break
-            prompts = [item[1] for item in current_prompts]
+            prompts = [item[1] for item in current_prompts] # TODO: 加入messages的逻辑以适应api
             if args.use_vllm:
                 outputs = llm.generate(
                     prompts,
@@ -295,23 +296,23 @@ def main(llm, tokenizer, data_name, args):
             elif args.use_api:
                 outputs = []
                 timeout_cnt = 0
-                client_prompts = [{"idx": item[0], "prompt": item[1]} for item in current_prompts]
+                client_messages = [{"idx": item[0], "message": item[1]} for item in current_messages]
                 # lock = Manager().Lock()
                 get_client_response_paltial = partial(get_client_response, args=args, stop=stop_words)
                 batch_size = 100
                 num_processed = 0
-                num_total = len(client_prompts)
-                with ProcessPool(max_workers=5) as pool:
-                    for i in range(0, len(client_prompts), batch_size):
-                        batch_prompts = client_prompts[i: i + batch_size]
-                        future = pool.map(get_client_response_paltial, batch_prompts, timeout=60)
+                # TODO：num_total为啥没用上
+                num_total = len(client_messages)
+                with ProcessPool(max_workers=10) as pool:
+                    for i in range(0, len(client_messages), batch_size):
+                        batch_messages = client_messages[i: i + batch_size]
+                        future = pool.map(get_client_response_paltial, batch_messages, timeout=60)
                         iterator = future.result()
-                        with tqdm(total=len(batch_prompts), desc="Evaluate") as progress_bar:
+                        with tqdm(total=len(batch_messages), desc="Evaluate") as progress_bar:
                             while True:
                                 try:
                                     result = next(iterator)
                                     num_processed += batch_size
-                                    print(f"progress: {num_processed/num_total}.")
                                     outputs.append(result)
                                 except StopIteration:
                                     break
@@ -339,57 +340,81 @@ def main(llm, tokenizer, data_name, args):
             # process all outputs
             remain_prompts = []
             remain_codes = []
-            for (i, query), output in zip(current_prompts, outputs):
+            remain_messages = []
+            for (i, query), (j, message), output in zip(current_prompts, current_messages, outputs):
+                assert i == j
                 output = output.rstrip()
-                query += output
-                if args.prompt_type == "pal":
+                if "```python" in output:
                     remain_prompts.append((i, query))
-                    if "```python" in output:
-                        output = extract_program(query)
+                    message.append({"role": "assistant", "content": output})
+                    output = extract_program(output)
                     remain_codes.append(output)
-                elif args.prompt_type == "cot":
+                    remain_messages.append((i, message))
+                elif args.prompt_type == "direct-cot":
                     if turn != multi_turn - 1:
-                        end_prompts.append((i, query + "\nTo confirm that your critic is correct, please critic all the content again, and place the final answer in \\boxed{{}}."))
+                        message = construct_message(args=args, message=message, assistant=output)
+                        if not args.use_api:
+                            query = construct_prompt(message, tokenizer)
+                        end_prompts.append((i, query))
+                    else:
+                        end_prompts.append((i, query + output))
+                    end_messages.append((i, message))
                 elif "boxed" not in output and output.endswith("```"):
+                    # TODO: 加上remain_message相关的逻辑
                     program = extract_program(query)
                     remain_prompts.append((i, query))
                     remain_codes.append(program)
+                    remain_messages.append((i, message))
                 else:
-                    end_prompts.append((i, query + "\nTo confirm that your critic is correct, please critic all the content again, and place the final answer in \\boxed{{}}."))
+                    if turn != multi_turn - 1:
+                        message = construct_message(args=args, message=message, assistant=output)
+                        if not args.use_api:
+                            query = construct_prompt(message, tokenizer)
+                        end_prompts.append((i, query))
+                    else:
+                        end_prompts.append((i, query + output))
+                    end_messages.append((i, message))
 
             # execute the remain prompts
             remain_results = executor.batch_apply(remain_codes)
             for k in range(len(remain_prompts)):
                 i, query = remain_prompts[k]
+                i, message = remain_messages[k]
                 res, report = remain_results[k]
                 exec_result = res if res else report
                 if "pal" in args.prompt_type:
                     exec_result = "\\boxed{" + exec_result + "}"
                 exec_result = f"\n```output\n{exec_result}\n```\n"
                 query += exec_result
+                message.append({"role": "user", "content": exec_result})
                 # not end
                 if epoch == max_func_call - 1:
                     query += "\nReach max function call limit."
                 remain_prompts[k] = (i, query)
-        input_prompts = end_prompts
-        remain_prompts = end_prompts
-        
-
-    # unsolved samples
-    print("Unsolved samples:", len(remain_prompts))
-    end_prompts.extend(remain_prompts)
+                remain_messages[k] = (i, message)
+        # TODO: tir时，可能出现没解决的remain_prompts，multi-turn的时候不知道有没有问题
+        print("Unsolved samples:", len(remain_prompts))
+        end_prompts.extend(remain_prompts)
+        end_messages.extend(remain_messages)
+        if turn != multi_turn - 1:
+            input_prompts = end_prompts
+            remain_prompts = end_prompts
+            remain_messages = end_messages
+            end_prompts = []
+            end_messages = []
     # sort by idx
     end_prompts = sorted(end_prompts, key=lambda x: x[0])
+    end_messages = sorted(end_messages, key=lambda x: x[0])
 
     # remove input_prompt from end_prompt
     codes = []
     assert len(input_prompts) == len(end_prompts)
     for i in range(len(input_prompts)):
         _, end_prompt = end_prompts[i]
-        code = end_prompt.split(input_prompts[i])[-1].strip()
-        for stop_word in stop_words:
-            if stop_word in code:
-                code = code.split(stop_word)[0].strip()
+        code = end_prompt.split(input_prompts[i][1])[-1].strip()
+        # for stop_word in stop_words:
+        #     if stop_word in code:
+        #         code = code.split(stop_word)[0].strip()
         codes.append(code)
 
     # extract preds
@@ -403,6 +428,7 @@ def main(llm, tokenizer, data_name, args):
     for i, sample in enumerate(samples):
         code = codes[i * args.n_sampling : (i + 1) * args.n_sampling]
         result = results[i * args.n_sampling : (i + 1) * args.n_sampling]
+        message = messages[i]
         preds = [item[0] for item in result]
         reports = [item[1] for item in result]
         for j in range(len(preds)):
@@ -421,11 +447,11 @@ def main(llm, tokenizer, data_name, args):
                 )
 
         sample.pop("prompt")
-        # TODO：code的list改一下，另外critic好像变成了pred
+        # TODO：code的list改一下，另外critic好像变成了pred，prompt pop掉，加入message
         if "critic" in args.prompt_type:
-            sample.update({"critic": code[0], "pred": preds, "report": reports})
+            sample.update({"critic": code, "pred": preds, "report": reports, "message": message})
         else:
-            sample.update({"reasoning": code[0], "pred": preds, "report": reports})
+            sample.update({"reasoning": code, "pred": preds, "report": reports, "message": message})
         all_samples.append(sample)
 
     # add processed samples
