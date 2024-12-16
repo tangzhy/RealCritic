@@ -137,13 +137,7 @@ def construct_message(args, example=None, message=[], assistant = None):
         ]
     else:
         message.append({"role": "assistant", "content": assistant})
-        # TODO：多轮critic的prompt也需要能够定制
-        if "cot" in args.prompt_type:
-            message.append({"role": "user", "content": MULTI_TURN_CRITIC["cot"]})
-        elif "tora" in args.prompt_type:
-            message.append({"role": "user", "content": MULTI_TURN_CRITIC["tora"]})
-        else:
-            raise
+        message.append({"role": "user", "content": MULTI_TURN_CRITIC[args.multi_turn_critic_prompt]})
     return message
 
 def construct_prompt(message, tokenizer):

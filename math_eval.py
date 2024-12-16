@@ -43,11 +43,7 @@ def parse_args():
     parser.add_argument("--num_shots", type=int, default=0)
     parser.add_argument("--use_api", action="store_true")
     parser.add_argument("--multi_turn",type=int, default=1)
-    parser.add_argument(
-        "--apply_chat_template",
-        action="store_true",
-        help="Apply chat template to prompt.",
-    )
+    parser.add_argument("--multi_turn_critic_prompt", type=str, default="cot")
     parser.add_argument("--pipeline_parallel_size", type=int, default=1)
     parser.add_argument(
         "--adapt_few_shot",
@@ -91,18 +87,9 @@ def prepare_data(data_name, args):
         out_file = f"{output_dir}/{data_name}/test.jsonl"
     os.makedirs(f"{output_dir}/{data_name}", exist_ok=True)
 
-    # TODO: 删掉对应的重写逻辑，强制重写
     processed_samples = []
     if not args.overwrite:
-        processed_files = [
-            f
-            for f in os.listdir(f"{output_dir}/{data_name}/")
-            if f.endswith(".jsonl") and f.startswith(out_file_prefix)
-        ]
-        for f in processed_files:
-            processed_samples.extend(
-                list(load_jsonl(f"{output_dir}/{data_name}/{f}"))
-            )
+        processed_samples = []
 
     # dedepulicate
     processed_samples = {sample["idx"]: sample for sample in processed_samples}
@@ -117,8 +104,8 @@ def setup(args):
     if args.multi_turn > 1 and "tora" in args.prompt_type:
         print("The program has automatically exited because it is not recommended to use tora for multi-turn critic.")
         exit()
-    available_gpus = os.environ["CUDA_VISIBLE_DEVICES"].split(",")
     if args.use_vllm:
+        available_gpus = os.environ["CUDA_VISIBLE_DEVICES"].split(",")
         llm = LLM(
             model=args.model_name_or_path,
             tensor_parallel_size=len(available_gpus) // args.pipeline_parallel_size,
@@ -263,7 +250,6 @@ def main(llm, tokenizer, data_name, args):
     # start inference
     # measure time use
     start_time = time.time()
-    # TODO: 修改了user prompt之后，multi turn的逻辑是否需要进行修改
     multi_turn = args.multi_turn if "critic" in args.prompt_type else 1
     for turn in range(multi_turn):
         for epoch in range(max_func_call):
@@ -272,7 +258,7 @@ def main(llm, tokenizer, data_name, args):
             current_messages = remain_messages
             if len(current_prompts) == 0:
                 break
-            prompts = [item[1] for item in current_prompts] # TODO: 加入messages的逻辑以适应api
+            prompts = [item[1] for item in current_prompts]
             if args.use_vllm:
                 outputs = llm.generate(
                     prompts,
@@ -297,22 +283,17 @@ def main(llm, tokenizer, data_name, args):
                 outputs = []
                 timeout_cnt = 0
                 client_messages = [{"idx": item[0], "message": item[1]} for item in current_messages]
-                # lock = Manager().Lock()
                 get_client_response_paltial = partial(get_client_response, args=args, stop=stop_words)
                 batch_size = 100
-                num_processed = 0
-                # TODO：num_total为啥没用上
-                num_total = len(client_messages)
                 with ProcessPool(max_workers=10) as pool:
                     for i in range(0, len(client_messages), batch_size):
                         batch_messages = client_messages[i: i + batch_size]
-                        future = pool.map(get_client_response_paltial, batch_messages, timeout=60)
+                        future = pool.map(get_client_response_paltial, batch_messages, timeout=240)
                         iterator = future.result()
                         with tqdm(total=len(batch_messages), desc="Evaluate") as progress_bar:
                             while True:
                                 try:
                                     result = next(iterator)
-                                    num_processed += batch_size
                                     outputs.append(result)
                                 except StopIteration:
                                     break
@@ -360,7 +341,6 @@ def main(llm, tokenizer, data_name, args):
                         end_prompts.append((i, query + output))
                     end_messages.append((i, message))
                 elif "boxed" not in output and output.endswith("```"):
-                    # TODO: 加上remain_message相关的逻辑
                     program = extract_program(query)
                     remain_prompts.append((i, query))
                     remain_codes.append(program)
@@ -392,7 +372,6 @@ def main(llm, tokenizer, data_name, args):
                     query += "\nReach max function call limit."
                 remain_prompts[k] = (i, query)
                 remain_messages[k] = (i, message)
-        # TODO: tir时，可能出现没解决的remain_prompts，multi-turn的时候不知道有没有问题
         print("Unsolved samples:", len(remain_prompts))
         end_prompts.extend(remain_prompts)
         end_messages.extend(remain_messages)
@@ -447,7 +426,6 @@ def main(llm, tokenizer, data_name, args):
                 )
 
         sample.pop("prompt")
-        # TODO：code的list改一下，另外critic好像变成了pred，prompt pop掉，加入message
         if "critic" in args.prompt_type:
             sample.update({"critic": code, "pred": preds, "report": reports, "message": message})
         else:

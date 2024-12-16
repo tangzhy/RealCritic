@@ -79,7 +79,7 @@ def loads_data(data_dir, data_name):
     data = []
     file_list = [path for path in recursively_list_files(data_dir)]
     for file in file_list:
-        # TODO: 之后在这里补上区分multi_turn的逻辑，或者什么情况下全部读入
+        # TODO: multi_turn > 2
         file_data_name = file.split('/')[-2]
         if data_name == file_data_name and "metrics" not in file:
             with open(file, "r", encoding='utf-8') as fr:
