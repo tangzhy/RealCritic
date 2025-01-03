@@ -7,6 +7,7 @@ from transformers import StoppingCriteria, StoppingCriteriaList
 import os 
 from openai import OpenAI
 import json
+import time
 
 class KeywordsStoppingCriteria(StoppingCriteria):
     def __init__(self, keywords_str, tokenizer):
@@ -143,8 +144,8 @@ def load_client():
     model_name: client要访问的模型名称
     """
     client = OpenAI(
-    api_key=os.getenv("DASHSCOPE_API_KEY"),
-    base_url=os.getenv("DASHSCOPE_BASE_URL"),
+        api_key=os.getenv("DASHSCOPE_API_KEY"),
+        base_url=os.getenv("DASHSCOPE_BASE_URL"),
     )
     return client
 
@@ -210,20 +211,29 @@ def load_hf_lm_and_tokenizer(
     model.eval()
     return model, tokenizer
 
-def get_client_response(client_messages, args, stop):
-    model_name=args.model_name_or_path
+def get_client_response(client_messages, args, stop, max_retries=3):
+    model_name = args.model_name_or_path
     client = load_client()
-    completion = client.chat.completions.create(
-        model=model_name,
-        messages=client_messages["message"],
-        temperature=args.temperature, 
-        top_p=args.top_p, 
-        max_tokens=args.max_tokens_per_call, 
-        n=args.n_sampling, 
-        stop=stop, 
-    )
-    output = json.loads(completion.model_dump_json())["choices"][0]["message"]["content"]
-    return (client_messages["idx"], output)
+    
+    for attempt in range(max_retries):
+        try:
+            completion = client.chat.completions.create(
+                model=model_name,
+                messages=client_messages["message"],
+                temperature=args.temperature, 
+                top_p=args.top_p, 
+                max_tokens=args.max_tokens_per_call, 
+                n=args.n_sampling, 
+                stop=stop, 
+            )
+
+            output = json.loads(completion.model_dump_json())["choices"][0]["message"]["content"]
+            return (client_messages["idx"], output)
+        except Exception as e:
+            if attempt == max_retries - 1:  # 最后一次尝试
+                raise Exception(f"在{max_retries}次尝试后仍然失败: {str(e)}")
+            print(f"请求失败，正在进行第{attempt + 2}次尝试...")
+            time.sleep(1)  # 添加短暂延迟，避免立即重试
 
 
 

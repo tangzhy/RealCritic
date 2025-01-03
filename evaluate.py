@@ -29,9 +29,10 @@ def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, ma
     for sample in samples:
         sample['gt_cot'], sample['gt'] = parse_ground_truth(sample, data_name)
     params = [(idx, pred, sample['gt']) for idx, sample in enumerate(samples) for pred in sample['pred']]
-
+    
     scores = []
     timeout_cnt = 0 
+    previous_scores = [sample.get('previous_score', [False])[0] for sample in samples]
 
     with ProcessPool(max_workers=1) as pool:
         future = pool.map(math_equal_process, params, timeout=3)
@@ -50,14 +51,15 @@ def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, ma
                 except Exception as error:
                     print(error.traceback)
                     exit()
-                progress_bar.update(1) 
+                progress_bar.update(1)
 
     idx = 0
     score_mat = []
     for sample in samples:
-        sample['score'] = scores[idx: idx+len(sample['pred'])]
-        assert len(sample['score']) == len(sample['pred'])
-        score_mat.append(sample['score'])
+        score_name = "score" if "critic" in prompt_type else "previous_score"
+        sample[score_name] = scores[idx: idx+len(sample['pred'])]
+        assert len(sample[score_name]) == len(sample['pred'])
+        score_mat.append(sample[score_name])
         idx += len(sample['pred'])
 
     max_len = max([len(s) for s in score_mat])
@@ -84,10 +86,35 @@ def evaluate(data_name, prompt_type, samples: list=None, file_path: str=None, ma
         for sample in samples:
             if sample['type'] not in type_scores:
                 type_scores[sample['type']] = []
-            type_scores[sample['type']].append(sample['score'][-1])
+            type_scores[sample['type']].append(sample[score_name][-1])
         type_scores = {k: np.round(np.array(v).mean() * 100, decimals=1) for k, v in type_scores.items()}
         type_scores = {k: v for k, v in sorted(type_scores.items(), key=lambda item: item[0])}
         result_json['type_acc'] = type_scores
+
+    if "critic" in prompt_type:
+        # add critic_information
+        originally_correct = sum(1 for x in previous_scores if x)
+        originally_incorrect = len(previous_scores) - originally_correct
+            
+        correct_to_correct = sum(1 for prev, curr in zip(previous_scores, scores) if prev and curr)
+        correct_to_incorrect = sum(1 for prev, curr in zip(previous_scores, scores) if prev and not curr)
+        incorrect_to_correct = sum(1 for prev, curr in zip(previous_scores, scores) if not prev and curr)
+        incorrect_to_incorrect = sum(1 for prev, curr in zip(previous_scores, scores) if not prev and not curr)
+        
+
+        result_json['critic_information'] = {
+            "total_samples": len(previous_scores),
+            "originally_correct": originally_correct,
+            "originally_incorrect": originally_incorrect,
+            "correct_to_correct_count": correct_to_correct,
+            "correct_to_incorrect_count": correct_to_incorrect,
+            "incorrect_to_correct_count": incorrect_to_correct,
+            "incorrect_to_incorrect_count": incorrect_to_incorrect,
+            "correct_to_correct_ratio": (correct_to_correct/originally_correct*100) if originally_correct else 0,
+            "correct_to_incorrect_ratio": (correct_to_incorrect/originally_correct*100) if originally_correct else 0,
+            "incorrect_to_correct_ratio": (incorrect_to_correct/originally_incorrect*100) if originally_incorrect else 0,
+            "incorrect_to_incorrect_ratio": (incorrect_to_incorrect/originally_incorrect*100) if originally_incorrect else 0
+        }
 
     print(result_json)
     return samples, result_json

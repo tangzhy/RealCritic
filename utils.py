@@ -47,6 +47,7 @@ def lower_keys(example):
 
 SYSTEM_PROMPT_TEMPLATES = {
     "direct-cot": "Please reason step by step, and put your final answer within \\boxed{}.",
+    "openai-api-cot": "You are a helpful assistant.",
     "cot-critic": "You will be provided with a question and an incorrect reasoning. First, you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.",
     "cot-judging-critic": "You will be provided with a question and a reasoning. The reasoning may be correct or incorrect. You need to make a judgment; if you think the reasoning is correct, put the answer within \\boxed{{}}. If you think the reasoning is wrong, first you need to point out the errors in the reasoning to form feedback, and then correct the erroneous reasoning based on the feedback you provide. Put your final answer within \\boxed{{}}.",
     "critic_and_correct": r"""
@@ -97,12 +98,13 @@ Therefore, the final answer is \boxed{[corrected answer]}.
 }
 
 MULTI_TURN_CRITIC = {
-    "cot": "Are you sure your critic is correct? Please reconsider all the content above and identify any possible errors. Place the final answer in \\boxed{{}}.",
-    "tora": "Are you sure your critic is correct? Please integrate natural language reasoning with python programs to reconsider all the content above and identify any possible errors. Place the final answer in \\boxed{{}}."
+    "cot": "Are you sure your critic is correct? Please reconsider all the content above. You need to follow the format of the previous critique, but you are not allowed to copy it !! You must conduct a thorough and sincere reanalysis on your own!",
 }
 
 USER_PROMPT_TEMPLATE = {
-    "default-cot": "{question}",
+    "default-cot": "{question}\n",
+    "openai-api-cot1": "Answer the following multiple choice question. The last line of your response should be of the following format: 'Answer: \\boxed{{LETTER}}' (without quotes) where LETTER is one of ABCD. Think step by step before answering.\n\n{question}",
+    "openai-api-cot2": "Please reason step by step, and put your final answer within \\boxed{{}}.\n\n{question}",
     "default-critic": "## Question\n\n{question}\n\nReasoning\n\n{reasoning}", 
     "critic_and_correct": r"""
 The following is the data for your task:

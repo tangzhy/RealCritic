@@ -16,6 +16,8 @@ from data_loader import load_data
 from python_executor import PythonExecutor
 from model_utils import load_hf_lm_and_tokenizer, generate_completions, get_client_response
 from functools import partial
+import glob
+import re
 
 
 def parse_args():
@@ -58,7 +60,55 @@ def parse_args():
 
 
 def prepare_data(data_name, args):
-    examples = load_data(data_name, args.split, args.data_dir)
+    dt_string = datetime.now().strftime("%m-%d_%H-%M")
+    output_dir = args.output_dir
+    if "math_eval" not in output_dir:
+        output_dir += "/math_eval"
+    if not os.path.exists(output_dir):
+        output_dir = f"outputs/{output_dir}"
+    out_file_prefix = f"{args.split}_{args.prompt_type}_{args.num_test_sample}_seed{args.seed}_t{args.temperature}"
+    
+    current_turn = 0
+    prev_file = None
+    if args.multi_turn > 1:
+        pattern = f"{args.data_dir}/{data_name}/*turn*.jsonl"
+        existing_files = glob.glob(pattern)
+        if existing_files:
+            # 过滤出不含metrics的文件，并找出turn number最大的文件
+            valid_files = [(f, int(re.search(r'turn(\d+)\.jsonl$', f).group(1))) 
+                          for f in existing_files if 'metrics' not in f]
+            if valid_files:
+                valid_files.sort(key=lambda x: x[1])  # 按turn number排序
+                prev_file = valid_files[-1][0]  # 获取turn number最大的文件路径
+                current_turn = valid_files[-1][1]  # 获取当前turn number
+    
+    if current_turn >= args.multi_turn:
+        print(f"Already completed {current_turn} turns, no need for more turns.")
+        return [], [], None, None
+        
+    if "critic" in args.prompt_type:
+        out_file = f"{output_dir}/{data_name}/{out_file_prefix}_s{args.start}_e{args.end}_turn{args.multi_turn}.jsonl"
+    else:
+        out_file = f"{output_dir}/{data_name}/test.jsonl"
+    os.makedirs(f"{output_dir}/{data_name}", exist_ok=True)
+
+    if current_turn == 0:
+        examples = load_data(data_name, args.split, args.data_dir)
+    else:
+        # 直接使用找到的prev_file
+        examples = load_jsonl(prev_file)
+        examples = [
+            {
+                "idx": ex["idx"],
+                "question": ex["question"],
+                "gt_cot": ex["gt_cot"],
+                "gt": ex["gt"],
+                "message": ex["message"],
+                "critic": ex["critic"][-1] if isinstance(ex["critic"], list) else ex["critic"],
+                "previous_score": ex["previous_score"]
+            }
+            for ex in examples
+        ]
 
     # sample `num_test_sample` from dataset
     if args.num_test_sample > 0:
@@ -73,20 +123,6 @@ def prepare_data(data_name, args):
     # select start and end
     examples = examples[args.start : len(examples) if args.end == -1 else args.end]
 
-    # get out_file name
-    dt_string = datetime.now().strftime("%m-%d_%H-%M")
-    output_dir = args.output_dir
-    if "math_eval" not in output_dir:
-        output_dir += "/math_eval"
-    if not os.path.exists(output_dir):
-        output_dir = f"outputs/{output_dir}"
-    out_file_prefix = f"{args.split}_{args.prompt_type}_{args.num_test_sample}_seed{args.seed}_t{args.temperature}"
-    if "critic" in args.prompt_type:
-        out_file = f"{output_dir}/{data_name}/{out_file_prefix}_s{args.start}_e{args.end}_turn{args.multi_turn}.jsonl"
-    else:
-        out_file = f"{output_dir}/{data_name}/test.jsonl"
-    os.makedirs(f"{output_dir}/{data_name}", exist_ok=True)
-
     processed_samples = []
     if not args.overwrite:
         processed_samples = []
@@ -96,7 +132,7 @@ def prepare_data(data_name, args):
     processed_idxs = list(processed_samples.keys())
     processed_samples = list(processed_samples.values())
     examples = [example for example in examples if example["idx"] not in processed_idxs]
-    return examples, processed_samples, out_file
+    return examples, processed_samples, out_file, current_turn
 
 
 def setup(args):
@@ -112,6 +148,7 @@ def setup(args):
             pipeline_parallel_size=args.pipeline_parallel_size,
             trust_remote_code=True,
         )
+        # llm = None
         tokenizer = AutoTokenizer.from_pretrained(
             args.model_name_or_path, trust_remote_code=True
         )
@@ -154,11 +191,12 @@ def is_multi_choice(answer):
 
 
 def main(llm, tokenizer, data_name, args):
-    examples, processed_samples, out_file = prepare_data(data_name, args)
+    examples, processed_samples, out_file, current_turn = prepare_data(data_name, args)
+    if out_file is None:  # 已经完成所有turn
+        return {"acc": 0.0}  # 返回空结果
+        
     print("=" * 50)
     print("data:", data_name, " ,remain samples:", len(examples))
-    if len(examples) > 0:
-        print(examples[0])
 
     # init python executor
     if "pal" in args.prompt_type:
@@ -169,21 +207,24 @@ def main(llm, tokenizer, data_name, args):
     samples = []
     messages = []
     for example in tqdm(examples, total=len(examples)):
-        idx = example["idx"]
-
-        message = construct_message(args, example)
+        if "message" in example: 
+            message = example["message"]
+            message = construct_message(args, message=message, assistant=example["critic"])
+        else:  # 处理第一轮的情况
+            message = construct_message(args, example)
+            
         messages.append(message)
+        
         if args.use_api:
-            # 统一框架产生的冗余代码，使用api的时候不需要full prompt
             full_prompt = example["question"]
         else:
             full_prompt = construct_prompt(message, tokenizer)
 
-        if idx == args.start:
+        if args.start == example["idx"]:
             print(full_prompt)
 
         sample = {
-            "idx": idx,
+            "idx": example["idx"],
             "question": example["question"],
             "gt_cot": example["gt_cot"],
             "gt": example["gt"],
@@ -206,16 +247,15 @@ def main(llm, tokenizer, data_name, args):
             "filed",
             "theorem",
             "answer",
+            "previous_score",
         ]:
             if key in example:
                 sample[key] = example[key]
         samples.append(sample)
-    
-    ##
-    # samples = samples[:50]
-    # messages = messages[:50]
-    ##
 
+    if len(samples) > 0:
+        print("samples example:", samples[0])
+        print("messages example:", messages[0])
     # repeat n times
     input_prompts = [
         sample["prompt"] for sample in samples for _ in range(args.n_sampling)
@@ -250,12 +290,18 @@ def main(llm, tokenizer, data_name, args):
     # start inference
     # measure time use
     start_time = time.time()
-    multi_turn = args.multi_turn if "critic" in args.prompt_type else 1
-    for turn in range(multi_turn):
+    remaining_turns = args.multi_turn - current_turn if "critic" in args.prompt_type else 1
+    
+    # 在循环开始前保存原始prompts
+    original_prompts = input_prompts.copy()
+    
+    for turn in range(remaining_turns):
+        print(f"Starting turn {current_turn + turn + 1} of {args.multi_turn}")
+        
         for epoch in range(max_func_call):
             print("-" * 20, "Epoch", epoch)
-            current_prompts = remain_prompts
-            current_messages = remain_messages
+            current_prompts = remain_prompts.copy()
+            current_messages = remain_messages.copy()
             if len(current_prompts) == 0:
                 break
             prompts = [item[1] for item in current_prompts]
@@ -281,29 +327,48 @@ def main(llm, tokenizer, data_name, args):
                 outputs = [output.outputs[0].text for output in outputs]
             elif args.use_api:
                 outputs = []
+                failed_messages = []  # 存储失败的请求
                 timeout_cnt = 0
                 client_messages = [{"idx": item[0], "message": item[1]} for item in current_messages]
                 get_client_response_paltial = partial(get_client_response, args=args, stop=stop_words)
-                batch_size = 100
-                with ProcessPool(max_workers=10) as pool:
-                    for i in range(0, len(client_messages), batch_size):
-                        batch_messages = client_messages[i: i + batch_size]
-                        future = pool.map(get_client_response_paltial, batch_messages, timeout=240)
-                        iterator = future.result()
-                        with tqdm(total=len(batch_messages), desc="Evaluate") as progress_bar:
-                            while True:
-                                try:
-                                    result = next(iterator)
-                                    outputs.append(result)
-                                except StopIteration:
-                                    break
-                                except TimeoutError as error:
-                                    print(error)
-                                    timeout_cnt += 1
-                                except Exception as error:
-                                    print(error)
-                                    exit()
-                                progress_bar.update(1)
+                batch_size = 10
+                
+                while client_messages or failed_messages:
+                    # 将之前失败的消息重新加入处理队列
+                    if failed_messages:
+                        client_messages.extend(failed_messages)
+                        failed_messages = []
+                    
+                    with ProcessPool(max_workers=10) as pool:
+                        for i in range(0, len(client_messages), batch_size):
+                            batch_messages = client_messages[i: i + batch_size]
+                            future = pool.map(get_client_response_paltial, batch_messages, timeout=240)
+                            iterator = future.result()
+                            with tqdm(total=len(batch_messages), desc="Evaluate") as progress_bar:
+                                while True:
+                                    try:
+                                        result = next(iterator)
+                                        outputs.append(result)
+                                    except StopIteration:
+                                        break
+                                    except TimeoutError as error:
+                                        print(f"超时错误: {error}")
+                                        timeout_cnt += 1
+                                        failed_messages.append(batch_messages[len(outputs) % len(batch_messages)])
+                                    except Exception as error:
+                                        print(f"发生错误: {error}")
+                                        failed_messages.append(batch_messages[len(outputs) % len(batch_messages)])
+                                    progress_bar.update(1)
+                    
+                    # 如果还有失败的消息，打印信息并继续重试
+                    if failed_messages:
+                        print(f"有 {len(failed_messages)} 个请求失败，准备重试...")
+                        client_messages = failed_messages
+                        failed_messages = []
+                    else:
+                        client_messages = []  # 所有请求都成功，清空队列
+                
+                # 最后排序并提取结果
                 outputs = sorted(outputs, key=lambda x: x[0])
                 outputs = [output[1] for output in outputs]
             else:
@@ -327,12 +392,13 @@ def main(llm, tokenizer, data_name, args):
                 output = output.rstrip()
                 if "```python" in output:
                     remain_prompts.append((i, query))
-                    message.append({"role": "assistant", "content": output})
+                    message_copy = message.copy()  # 创建副本
+                    message_copy.append({"role": "assistant", "content": output})
                     output = extract_program(output)
                     remain_codes.append(output)
-                    remain_messages.append((i, message))
+                    remain_messages.append((i, message_copy))
                 elif args.prompt_type == "direct-cot":
-                    if turn != multi_turn - 1:
+                    if turn != remaining_turns - 1:
                         message = construct_message(args=args, message=message, assistant=output)
                         if not args.use_api:
                             query = construct_prompt(message, tokenizer)
@@ -340,13 +406,13 @@ def main(llm, tokenizer, data_name, args):
                     else:
                         end_prompts.append((i, query + output))
                     end_messages.append((i, message))
-                elif "boxed" not in output and output.endswith("```"):
+                elif "boxed" not in output and output.endswith("```") and args.prompt_type != "critic_and_correct":
                     program = extract_program(query)
                     remain_prompts.append((i, query))
                     remain_codes.append(program)
                     remain_messages.append((i, message))
                 else:
-                    if turn != multi_turn - 1:
+                    if turn != remaining_turns - 1:
                         message = construct_message(args=args, message=message, assistant=output)
                         if not args.use_api:
                             query = construct_prompt(message, tokenizer)
@@ -375,25 +441,25 @@ def main(llm, tokenizer, data_name, args):
         print("Unsolved samples:", len(remain_prompts))
         end_prompts.extend(remain_prompts)
         end_messages.extend(remain_messages)
-        if turn != multi_turn - 1:
-            input_prompts = end_prompts
-            remain_prompts = end_prompts
-            remain_messages = end_messages
+        if turn != remaining_turns - 1:
+            input_prompts = end_prompts.copy()
+            remain_prompts = end_prompts.copy()
+            remain_messages = end_messages.copy()
             end_prompts = []
             end_messages = []
     # sort by idx
     end_prompts = sorted(end_prompts, key=lambda x: x[0])
     end_messages = sorted(end_messages, key=lambda x: x[0])
 
-    # remove input_prompt from end_prompt
+    # 使用原始prompts来分割
     codes = []
-    assert len(input_prompts) == len(end_prompts)
-    for i in range(len(input_prompts)):
+    assert len(original_prompts) == len(end_prompts)
+    for i in range(len(original_prompts)):
         _, end_prompt = end_prompts[i]
-        code = end_prompt.split(input_prompts[i][1])[-1].strip()
-        # for stop_word in stop_words:
-        #     if stop_word in code:
-        #         code = code.split(stop_word)[0].strip()
+        if args.use_vllm:
+            code = end_prompt.split(input_prompts[i][1])[-1].strip()
+        else:
+            code = end_prompt.split(original_prompts[i][1])[-1].strip()
         codes.append(code)
 
     # extract preds
@@ -429,7 +495,7 @@ def main(llm, tokenizer, data_name, args):
         if "critic" in args.prompt_type:
             sample.update({"critic": code, "pred": preds, "report": reports, "message": message})
         else:
-            sample.update({"reasoning": code, "pred": preds, "report": reports, "message": message})
+            sample.update({"reasoning": code, "pred": preds, "report": reports})
         all_samples.append(sample)
 
     # add processed samples
