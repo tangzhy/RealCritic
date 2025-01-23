@@ -14,74 +14,76 @@
 
 
 
+### 定制multi turn prompt
+
+multi turn prompt用来在每一轮的开始添加进message的末尾，以某种方式合适的方式提示模型需要再次进行critic
+
+
+
 # 一键启动脚本
 
-``` bash
-export CUDA_VISIBLE_DEVICES=...
-MODEL_NAME_OR_PATH=...
-PROMPT_TYPE=xx-cot
-USER_PROMPT_TYPE=xxx-cot
-OUTPUT_PATH=... #需要自己制定output path，如果output path不存在，则在outputs文件夹下拼接该output path然后makedirs
-DATA_NAME="arc-challenge,college_math,gpqa,gsm8k,math,minerva_math,mmlu_stem,olympiadbench"
-# cot
-python3 -u math_eval.py \
-	--data_dir data/wrong_data \
-	--model_name_or_path ${MODEL_NAME_OR_PATH \
-	--output_dir ${OUTPUT_PATH} \
-	--prompt_type ${PROMPT_TYPE} \
-	--user_prompt_type ${USER_PROMPT_TYPE} \
-	--data_name ${DATA_NAME} \
-	--use_vllm \
-	--save_outputs \
-	--overwrite
-	
+所有示例脚本的位置在sh/中
 
-# benchmark 1: 全错的critic
-PROMPT_TYPE=xx-critic
-USER_PROMPT_TYPE=xxx-critic
-OUTPUT_PATH=...
-python3 -u math_eval.py \
-	--data_dir data/wrong_data \
-	--model_name_or_path ${MODEL_NAME_OR_PATH \
-	--output_dir ${OUTPUT_PATH} \
-	--prompt_type ${PROMPT_TYPE} \
-	--user_prompt_type ${USER_PROMPT_TYPE} \
-	--data_name ${DATA_NAME} \
-	--use_vllm \
-	--save_outputs \
-	--overwrite
-	
-# benchmark 2: 一半错一半对的critic，选择自己要的prompt type（默认是cot judging critic），主要是改data_dir，改成data/random
-PROMPT_TYPE=xx-critic
-USER_PROMPT_TYPE=xxx-critic
-OUTPUT_PATH=...
-python3 -u math_eval.py \
-	--data_dir data/random \
-	--model_name_or_path ${MODEL_NAME_OR_PATH \
-	--output_dir ${OUTPUT_PATH} \
-	--prompt_type ${PROMPT_TYPE} \
-	--user_prompt_type ${USER_PROMPT_TYPE} \
-	--data_name ${DATA_NAME} \
-	--use_vllm \
-	--save_outputs \
-	--overwrite
-	
-# self-critic，改data_dir，改成cot运行完后的output_path，那里会保存一个matric json和一个test json，程序会读取里面的test json进行critic
-PROMPT_TYPE=xx-critic
-USER_PROMPT_TYPE=xxx-critic
-OUTPUT_PATH=...
-python3 -u math_eval.py \
-	--data_dir cot/output/path \
-	--model_name_or_path ${MODEL_NAME_OR_PATH \
-	--output_dir ${OUTPUT_PATH} \
-	--prompt_type ${PROMPT_TYPE} \
-	--user_prompt_type ${USER_PROMPT_TYPE} \
-	--data_name ${DATA_NAME} \
-	--use_vllm \
-	--save_outputs \
-	--overwrite
+只需要在config.sh中，按照示例填入对应的值，然后运行该脚本即可。
 
-# post check
+
+
+### api
+
+``` sh 
+#!/bin/bash
+
+PROMPT_TYPE="direct-cot"
+USER_PROMPT_TYPE="default-cot"
+MODEL_NAME_OR_PATH="gpt-4o"
+DATA_DIR="data/mix_data"
+DATASETS="arc-challenge,college_math,gpqa,gsm8k,math,minerva_math,mmlu_stem,olympiadbench"
+MULTI_TURN=1
+
+export DASHSCOPE_API_KEY="your_api_key"
+export DASHSCOPE_BASE_URL="https://api.dashscope.com/v1"
+
+bash sh/run_direct_cot.sh $PROMPT_TYPE $USER_PROMPT_TYPE $MODEL_NAME_OR_PATH $DATA_DIR $DATASETS
+
+# bash sh/run_cross_critic.sh $PROMPT_TYPE $USER_PROMPT_TYPE $MODEL_NAME_OR_PATH $DATA_DIR $DATASETS $MULTI_TURN
+
+# bash sh/run_self_critic.sh $PROMPT_TYPE $USER_PROMPT_TYPE $MODEL_NAME_OR_PATH $DATA_DIR $DATASETS $MULTI_TURN
+```
+
+值得说明的是，调用api评测时，model_name_or_path对应的是调用api时的模型名。
+
+
+
+### 本地调用
+
+``` sh
+#!/bin/bash
+
+PROMPT_TYPE="critic_and_correct"
+USER_PROMPT_TYPE="critic_and_correct"
+MODEL_NAME_OR_PATH="path/to/your/model"
+DATA_DIR="data/mix_data"
+DATASETS="arc-challenge,college_math,gpqa,gsm8k,math,minerva_math,mmlu_stem,olympiadbench"
+MULTI_TURN=1
+
+export CUDA_VISIBLE_DEVICES="0,1"
+
+bash sh/local/run_cross_critic.sh $PROMPT_TYPE $USER_PROMPT_TYPE $MODEL_NAME_OR_PATH $DATA_DIR $DATASETS $MULTI_TURN
+
+# bash sh/local/run_self_critic.sh $PROMPT_TYPE $USER_PROMPT_TYPE $MODEL_NAME_OR_PATH $DATA_DIR $DATASETS $MULTI_TURN
+
+# bash sh/local/run_direct_cot.sh $PROMPT_TYPE $USER_PROMPT_TYPE $MODEL_NAME_OR_PATH $DATA_DIR $DATASETS
+```
+
+
+
+
+
+
+
+### post check
+
+``` sh
 python3 -u model_eval_critic.py \
 	--data_dir path/for/critic/math_eval \
 	--model_name_or_path /post/check/model \
@@ -92,178 +94,5 @@ python3 -u model_eval_critic.py \
 	--top_p 1 \
 ```
 
-下面的API和多轮critic暂时不要运行，还没来得及测试user prompt逻辑改变带来的影响。
-
-### API Debug
-
-First start your api service, please change the model path or name as you like
-
-```bash
-sh sh/serve_qwen2.5-math-7b-instruct_api.sh
-```
-
-Then try to request the api to evaluate. 
-
-- We change the batch_size per request to 1, since we are already doing multiprocessing at data point level, grouping data point into large batches seems unneccessary.
-- We modify the get_client_reponse function which support temperature, top_p and so on. Otherwise, you may get totally unexpected results.
-
-```bash
-sh sh/dbg_use_api
-```
 
 
-### Requirements
-
-You can install the required packages with the following command:
-
-```bash
-cd latex2sympy
-pip install -e .
-cd ..
-pip install -r requirements.txt 
-pip install vllm==0.5.1 --no-build-isolation
-pip install transformers==4.42.3
-```
-
-### Evaluation
-
-You can evaluate use API with the following command:
-
-```bash
-export CUDA_VISIBLE_DEVICES=0
-# for critic bench 1
-PROMPT_TYPE="api-cot"
-
-MODEL_NAME_OR_PATH=...
-export DASHSCOPE_API_KEY=...
-export DASHSCOPE_BASE_URL=...
-DATA_DIR="./data/wrong_data"
-
-OUTPUT_DIR=api/${PROMPT_TYPE}/${MODEL_NAME_OR_PATH}/math_eval
-
-SPLIT="test"
-NUM_TEST_SAMPLE=-1
-
-DATA_NAME="arc-challenge,college_math,gpqa,gsm8k,math,minerva_math,mmlu_stem,olympiadbench"
-TOKENIZERS_PARALLELISM=false \
-python3 -u math_eval.py \
-    --data_dir ${DATA_DIR} \
-    --model_name_or_path ${MODEL_NAME_OR_PATH} \
-    --data_name ${DATA_NAME} \
-    --output_dir ${OUTPUT_DIR} \
-    --split ${SPLIT} \
-    --prompt_type ${PROMPT_TYPE} \
-    --num_test_sample ${NUM_TEST_SAMPLE} \
-    --seed 0 \
-    --temperature 0 \
-    --n_sampling 1 \
-    --top_p 1 \
-    --start 0 \
-    --end -1 \
-    --use_api \
-    --save_outputs \
-    --overwrite \
-    
-# for critic bench 2
-PROMPT_TYPE="api-critic"
-
-MODEL_NAME_OR_PATH=...
-export DASHSCOPE_API_KEY=...
-export DASHSCOPE_BASE_URL=...
-DATA_DIR="./data/wrong_data"
-
-OUTPUT_DIR=api/${PROMPT_TYPE}/${MODEL_NAME_OR_PATH}/math_eval
-
-SPLIT="test"
-NUM_TEST_SAMPLE=-1
-
-DATA_NAME="arc-challenge,college_math,gpqa,gsm8k,math,minerva_math,mmlu_stem,olympiadbench"
-TOKENIZERS_PARALLELISM=false \
-python3 -u math_eval.py \
-    --data_dir ${DATA_DIR} \
-    --model_name_or_path ${MODEL_NAME_OR_PATH} \
-    --data_name ${DATA_NAME} \
-    --output_dir ${OUTPUT_DIR} \
-    --split ${SPLIT} \
-    --prompt_type ${PROMPT_TYPE} \
-    --num_test_sample ${NUM_TEST_SAMPLE} \
-    --seed 0 \
-    --temperature 0 \
-    --n_sampling 1 \
-    --top_p 1 \
-    --start 0 \
-    --end -1 \
-    --use_api \
-    --save_outputs \
-    --overwrite \
-    
-# for critic bench 3
-PROMPT_TYPE="api-judging-critic"
-
-MODEL_NAME_OR_PATH=...
-export DASHSCOPE_API_KEY=...
-export DASHSCOPE_BASE_URL=...
-DATA_DIR="./data/random"
-
-OUTPUT_DIR=api/${PROMPT_TYPE}/${MODEL_NAME_OR_PATH}/math_eval
-
-SPLIT="test"
-NUM_TEST_SAMPLE=-1
-
-DATA_NAME="arc-challenge,college_math,gpqa,gsm8k,math,minerva_math,mmlu_stem,olympiadbench"
-TOKENIZERS_PARALLELISM=false \
-python3 -u math_eval.py \
-    --data_dir ${DATA_DIR} \
-    --model_name_or_path ${MODEL_NAME_OR_PATH} \
-    --data_name ${DATA_NAME} \
-    --output_dir ${OUTPUT_DIR} \
-    --split ${SPLIT} \
-    --prompt_type ${PROMPT_TYPE} \
-    --num_test_sample ${NUM_TEST_SAMPLE} \
-    --seed 0 \
-    --temperature 0 \
-    --n_sampling 1 \
-    --top_p 1 \
-    --start 0 \
-    --end -1 \
-    --use_api \
-    --save_outputs \
-    --overwrite \
-    
-# for critic bench 4
-PROMPT_TYPE="api-judging-critic"
-
-MODEL_NAME_OR_PATH=...
-export DASHSCOPE_API_KEY=...
-export DASHSCOPE_BASE_URL=...
-DATA_DIR="critic/bench1/outputdir/math_eval"
-
-OUTPUT_DIR=api/${PROMPT_TYPE}_self/${MODEL_NAME_OR_PATH}/math_eval
-
-SPLIT="test"
-NUM_TEST_SAMPLE=-1
-
-DATA_NAME="arc-challenge,college_math,gpqa,gsm8k,math,minerva_math,mmlu_stem,olympiadbench"
-TOKENIZERS_PARALLELISM=false \
-python3 -u math_eval.py \
-    --data_dir ${DATA_DIR} \
-    --model_name_or_path ${MODEL_NAME_OR_PATH} \
-    --data_name ${DATA_NAME} \
-    --output_dir ${OUTPUT_DIR} \
-    --split ${SPLIT} \
-    --prompt_type ${PROMPT_TYPE} \
-    --num_test_sample ${NUM_TEST_SAMPLE} \
-    --seed 0 \
-    --temperature 0 \
-    --n_sampling 1 \
-    --top_p 1 \
-    --start 0 \
-    --end -1 \
-    --use_api \
-    --save_outputs \
-    --overwrite \
-```
-
-## Acknowledgement
-
-The codebase is adapted from [math-evaluation-harness](https://github.com/ZubinGou/math-evaluation-harness).
