@@ -115,5 +115,18 @@ USER_PROMPT_TEMPLATE = {
 }
 ```
 
-Acknowledgements
+## Acknowledgements
 The code in this repository is built upon [Qwen2.5-Math](https://github.com/QwenLM/Qwen2.5-Math.git). We thank the Qwen team for their excellent work and open-source contributions.
+
+## Citation
+
+If you find this work useful, please cite:
+
+```bibtex
+@article{tang2024realcritic,
+    title={RealCritic: Towards Effectiveness-Driven Evaluation of Language Model Critiques},
+    author={Tang, Zhengyang and Li, Ziniu and Xiao, Zhenyang and Ding, Tian and Sun, Ruoyu and Wang, Benyou and Liu, Dayiheng and Huang, Fei and Liu, Tianyu and Yu, Bowen and Lin, Junyang},
+    journal={arXiv preprint arXiv:2501.14492},
+    year={2024}
+}
+```
